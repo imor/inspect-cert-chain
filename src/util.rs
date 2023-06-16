@@ -6,7 +6,6 @@ use const_oid::{
     db::{rfc5280, rfc5912, Database, DB},
     ObjectIdentifier,
 };
-use ct_sct::sct::CT_PRECERT_SCTS;
 use itertools::Itertools as _;
 use x509_cert::spki::{AlgorithmIdentifier, AlgorithmIdentifierOwned};
 
@@ -88,6 +87,10 @@ fn get_oid_desc(oid: &ObjectIdentifier) -> Option<&str> {
         .find(|(&id, _)| id == *oid)
         .map(|&(_, desc)| desc)
 }
+
+//TODO:Remove once x509-cert 0.2.4 or later is published
+pub const CT_PRECERT_SCTS: ObjectIdentifier =
+    ObjectIdentifier::new_unwrap("1.3.6.1.4.1.11129.2.4.2");
 
 //TODO: convert into a phf if it grows too large
 /// Contains human readable descriptions for commonly used OIDs.

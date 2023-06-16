@@ -4,7 +4,6 @@ use std::{
 };
 
 use const_oid::{db::DB, AssociatedOid as _, ObjectIdentifier};
-use ct_sct::sct;
 use der::Decode;
 use itertools::Itertools;
 use x509_cert::ext::{
@@ -25,7 +24,7 @@ pub(crate) fn interpret_val(ext: &Extension) -> String {
         pkix::ExtendedKeyUsage::OID => fmt_extended_key_usage(ext),
         pkix::AuthorityKeyIdentifier::OID => fmt_authority_key_identifier(ext),
         pkix::CrlDistributionPoints::OID => fmt_crl_distribution_points(ext),
-        sct::SctList::OID => fmt_sct_list(ext),
+        pkix::SignedCertificateTimestampList::OID => fmt_sct_list(ext),
         _ => openssl_hex(ext.extn_value.as_bytes(), 80).join("\n    "),
     }
 }
@@ -169,23 +168,62 @@ fn fmt_reason(reason: pkix::crl::dp::Reasons) -> &'static str {
 }
 
 fn fmt_sct_list(ext: &Extension) -> String {
-    let sct_list = sct::SctList::from_der(ext.extn_value.as_bytes()).unwrap();
-    let list =
-        sct::TlsSctList::from_sct_list(&sct_list).expect("Failed to deserialize tls sct list");
-    list.scts.iter().map(fmt_sct).join("\n    ")
+    let sct_list =
+        pkix::SignedCertificateTimestampList::from_der(ext.extn_value.as_bytes()).unwrap();
+    let timestamps = sct_list.parse_timestamps().unwrap();
+    timestamps.iter().map(fmt_sct).join("\n    ")
 }
 
-fn fmt_sct(sct: &sct::TlsSct) -> String {
-    let extensions = openssl_hex(&sct.extensions, 16).join("\n                  ");
+fn fmt_sct(sct: &pkix::SerializedSct) -> String {
+    let timestamp = sct.parse_timestamp().unwrap();
+    let extensions = openssl_hex(&timestamp.extensions.as_slice(), 16).join("\n                  ");
     format!(
         "Signed Certificate Timestamp:\n      Version   : {}\n      Log ID    : {}\n      Timestamp : {}\n      Extensions: {}\n      Signature : {}\n                  {}",
-        sct.version,
-        openssl_hex(&sct.log_id, 16).join("\n                  "),
-        sct.timestamp,
+        fmt_version(&timestamp.version),
+        openssl_hex(&timestamp.log_id.key_id, 16).join("\n                  "),
+        timestamp.timestamp().unwrap(),
         if extensions.is_empty() { "none" } else { &extensions },
-        sct.sign.sign_and_hash_algo,
-        openssl_hex(&sct.sign.sign, 16).join("\n                  "),
+        fmt_signature_and_hash_algorithms(timestamp.signature.algorithm),
+        openssl_hex(&timestamp.signature.signature.as_slice(), 16).join("\n                  "),
     )
+}
+
+fn fmt_version(version: &pkix::Version) -> &'static str {
+    match version {
+        pkix::Version::V1 => "v1",
+    }
+}
+
+fn fmt_signature_and_hash_algorithms(algorithm: pkix::SignatureAndHashAlgorithm) -> String {
+    format!(
+        "{}-with-{}",
+        fmt_signature_algorithm(algorithm.signature),
+        fmt_hash_algorithm(algorithm.hash)
+    )
+}
+
+fn fmt_signature_algorithm(algorithm: pkix::SignatureAlgorithm) -> &'static str {
+    match algorithm {
+        pkix::SignatureAlgorithm::Anonymous => "anonymous",
+        pkix::SignatureAlgorithm::Rsa => "rsa",
+        pkix::SignatureAlgorithm::Dsa => "dsa",
+        pkix::SignatureAlgorithm::Ecdsa => "ecdsa",
+        pkix::SignatureAlgorithm::Ed25519 => "ed25519",
+        pkix::SignatureAlgorithm::Ed448 => "ed448",
+    }
+}
+
+fn fmt_hash_algorithm(algorithm: pkix::HashAlgorithm) -> &'static str {
+    match algorithm {
+        pkix::HashAlgorithm::None => "NONE",
+        pkix::HashAlgorithm::Md5 => "MD5",
+        pkix::HashAlgorithm::Sha1 => "SHA1",
+        pkix::HashAlgorithm::Sha224 => "SHA224",
+        pkix::HashAlgorithm::Sha256 => "SHA256",
+        pkix::HashAlgorithm::Sha384 => "SHA384",
+        pkix::HashAlgorithm::Sha512 => "SHA512",
+        pkix::HashAlgorithm::Intrinsic => "INTRINSIC",
+    }
 }
 
 fn fmt_authority_info_access_syntax(ext: &Extension) -> String {
