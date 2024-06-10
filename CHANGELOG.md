@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.0.17
+
+### Features
+
+- Add page up/down keybinds
+
 ## 0.0.16
 
 ### Features
